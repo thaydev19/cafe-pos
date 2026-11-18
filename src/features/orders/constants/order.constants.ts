@@ -5,22 +5,22 @@
 
 export const ORDER_PAYMENT_METHODS: Record<string, { label_lo: string; short_lo: string; badgeClass: string }> = {
   cash: {
-    label_lo: "ເງິນສົດ (Cash)",
+    label_lo: "ເງິນສົດ ",
     short_lo: "ເງິນສົດ",
     badgeClass: "bg-emerald-50 text-emerald-800 border-emerald-200",
   },
   lao_qr: {
-    label_lo: "ໂອນ LAO QR (Transfer)",
+    label_lo: "ໂອນ LAO QR ",
     short_lo: "LAO QR",
     badgeClass: "bg-indigo-50 text-indigo-800 border-indigo-200",
   },
   transfer: {
-    label_lo: "ໂອນ LAO QR (Transfer)",
+    label_lo: "ໂອນ LAO QR ",
     short_lo: "LAO QR",
     badgeClass: "bg-indigo-50 text-indigo-800 border-indigo-200",
   },
   split: {
-    label_lo: "ຊຳລະປະສົມ (Split)",
+    label_lo: "ຊຳລະປະສົມ ",
     short_lo: "ປະສົມ",
     badgeClass: "bg-amber-50 text-amber-800 border-amber-200",
   },
@@ -28,30 +28,30 @@ export const ORDER_PAYMENT_METHODS: Record<string, { label_lo: string; short_lo:
 
 export const ORDER_STATUS_CONFIG: Record<string, { label_lo: string; bgClass: string }> = {
   preparing: {
-    label_lo: "ກຳລັງຊົງ (Preparing)",
+    label_lo: "ກຳລັງຊົງ ",
     bgClass: "bg-amber-100 text-amber-900 border-amber-300",
   },
   ready: {
-    label_lo: "ພ້ອມເສີບ (Ready)",
+    label_lo: "ພ້ອມເສີບ ",
     bgClass: "bg-blue-100 text-blue-900 border-blue-300",
   },
   completed: {
-    label_lo: "ສຳເລັດແລ້ວ (Completed)",
+    label_lo: "ສຳເລັດແລ້ວ ",
     bgClass: "bg-emerald-100 text-emerald-900 border-emerald-300",
   },
   cancelled: {
-    label_lo: "ຍົກເລີກແລ້ວ (Cancelled)",
+    label_lo: "ຍົກເລີກແລ້ວ ",
     bgClass: "bg-rose-100 text-rose-900 border-rose-300",
   },
 };
 
 export const ORDER_MODE_CONFIG: Record<string, { label_lo: string; icon: string }> = {
   dine_in: {
-    label_lo: "ກິນທີ່ຮ້ານ (Dine-in)",
+    label_lo: "ກິນທີ່ຮ້ານ ",
     icon: "",
   },
   takeaway: {
-    label_lo: "ສັ່ງກັບບ້ານ (Takeaway)",
+    label_lo: "ສັ່ງກັບບ້ານ ",
     icon: "",
   },
   delivery: {
