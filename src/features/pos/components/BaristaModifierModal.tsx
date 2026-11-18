@@ -43,6 +43,17 @@ const QUICK_NOTE_TAGS = [
   "ນົມໄຂມັນຕ່ຳ",
 ];
 
+// Clean cup size labels: removes (12oz), (16oz), (22oz), (12), (16), (22), etc.
+function cleanSizeLabel(name?: string, code?: string): string {
+  if (!name && code) return `Size ${code}`;
+  if (!name) return "";
+  const cleaned = name
+    .replace(/\s*\(\s*\d+\s*(?:oz|ml)?\s*\)/gi, "")
+    .replace(/\s*\d+\s*oz\b/gi, "")
+    .trim();
+  return cleaned || (code ? `Size ${code}` : name);
+}
+
 export function BaristaModifierModal() {
   const isModifierModalOpen = useCafePosStore((s) => s.isModifierModalOpen);
   const selectedMenuItem = useCafePosStore((s) => s.selectedMenuItemForModifier);
@@ -165,7 +176,7 @@ export function BaristaModifierModal() {
         if (enabledSizes.length > 0) {
           return enabledSizes.map((s) => ({
             code: s.code,
-            name: s.name,
+            name: cleanSizeLabel(s.name, s.code),
             price: Number(s.price),
             price_delta: 0,
           }));
@@ -174,12 +185,15 @@ export function BaristaModifierModal() {
     }
 
     if (selectedMenuItem?.available_sizes && selectedMenuItem.available_sizes.length > 0) {
-      return selectedMenuItem.available_sizes;
+      return selectedMenuItem.available_sizes.map((s) => ({
+        ...s,
+        name: cleanSizeLabel(s.name, s.code),
+      }));
     }
 
     return [
-      { code: "M", name: "Size M (16oz)", price: basePriceForTemp, price_delta: 0 },
-      { code: "L", name: "Size L (22oz)", price: basePriceForTemp + 5000, price_delta: 5000 },
+      { code: "M", name: "Size M", price: basePriceForTemp, price_delta: 0 },
+      { code: "L", name: "Size L", price: basePriceForTemp + 5000, price_delta: 5000 },
     ];
   }, [matrix, temperature, selectedMenuItem, basePriceForTemp]);
 
@@ -486,7 +500,7 @@ export function BaristaModifierModal() {
                               : "bg-white border-stone-200 text-stone-700 hover:bg-stone-100"
                           }`}
                         >
-                          <span className="text-xs font-black">{sizeOpt.name || `Size ${sizeOpt.code}`}</span>
+                          <span className="text-xs font-black">{cleanSizeLabel(sizeOpt.name, sizeOpt.code)}</span>
                           <span
                             className={`text-[10.5px] mt-0.5 font-mono font-bold ${
                               isSelected ? "text-amber-300" : "text-stone-500"

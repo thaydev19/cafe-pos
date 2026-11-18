@@ -71,6 +71,12 @@ function getCategoryIconComponent(iconName?: string) {
   return match ? match.Icon : Coffee;
 }
 
+// Enterprise Single Source of Truth: strictly determined by DB column `item_type`
+export function isBakeryCategory(cat?: CategoryEntity | null): boolean {
+  if (!cat) return false;
+  return cat.item_type === "bakery";
+}
+
 export function ProductsPage() {
   const [activeTab, setActiveTab] = useState<"menu" | "toppings" | "categories">("menu");
   const [categories, setCategories] = useState<CategoryEntity[]>([]);
@@ -93,6 +99,29 @@ export function ProductsPage() {
   const [itemCatId, setItemCatId] = useState("");
   const [itemImageUrl, setItemImageUrl] = useState("");
   const [itemType, setItemType] = useState<"beverage" | "bakery">("beverage");
+
+  // Filtered categories strictly for Add/Edit Product Modal (Beverage vs Bakery)
+  const filteredModalCategories = useMemo(() => {
+    return categories.filter((c) =>
+      itemType === "bakery" ? isBakeryCategory(c) : !isBakeryCategory(c)
+    );
+  }, [categories, itemType]);
+
+  const handleItemTypeChange = (newType: "beverage" | "bakery") => {
+    triggerHapticFeedback(15);
+    setItemType(newType);
+
+    const matching = categories.filter((c) =>
+      newType === "bakery" ? isBakeryCategory(c) : !isBakeryCategory(c)
+    );
+
+    // If current category does not belong to new product type, auto-select first matching category
+    if (!matching.some((c) => c.id === itemCatId)) {
+      if (matching.length > 0) {
+        setItemCatId(matching[0].id);
+      }
+    }
+  };
 
   // Bakery-specific Fields
   const [bakeryPrice, setBakeryPrice] = useState<number>(25000);
@@ -430,12 +459,20 @@ export function ProductsPage() {
       setEditingItem(null);
       setItemName("");
       setItemNameEn("");
-      const initialCat = categories[0];
+
+      let initialCat: CategoryEntity | undefined;
+      if (selectedCatFilter !== "all") {
+        initialCat = categories.find((c) => c.id === selectedCatFilter);
+      }
+      if (!initialCat) {
+        initialCat = categories.find((c) => !isBakeryCategory(c)) || categories[0];
+      }
+
       const initialCatId = initialCat?.id || "";
       setItemCatId(initialCatId);
       setItemImageUrl("");
 
-      const isDefaultBakery = initialCat?.item_type === "bakery";
+      const isDefaultBakery = initialCat ? isBakeryCategory(initialCat) : false;
       setItemType(isDefaultBakery ? "bakery" : "beverage");
       setBakeryPrice(25000);
       setAllowsReheat(true);
@@ -473,8 +510,8 @@ export function ProductsPage() {
     setItemCatId(newCatId);
     if (!editingItem) {
       const found = categories.find((c) => c.id === newCatId);
-      if (found?.item_type) {
-        setItemType(found.item_type as "beverage" | "bakery");
+      if (found) {
+        setItemType(isBakeryCategory(found) ? "bakery" : "beverage");
       }
     }
   };
@@ -596,7 +633,7 @@ export function ProductsPage() {
           });
 
           if (available_sizes.length === 0) {
-            available_sizes.push({ code: "M", name: "Size M (16oz)", price: 25000, price_delta: 0, is_default: true });
+            available_sizes.push({ code: "M", name: "Size M", price: 25000, price_delta: 0, is_default: true });
           }
         }
 
@@ -1333,7 +1370,7 @@ export function ProductsPage() {
                     <div className="grid grid-cols-2 gap-1.5 p-1 bg-stone-200/70 rounded-2xl border border-stone-200">
                       <button
                         type="button"
-                        onClick={() => setItemType("beverage")}
+                        onClick={() => handleItemTypeChange("beverage")}
                         className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
                           itemType === "beverage"
                             ? "bg-[#2C1810] text-amber-300 shadow-2xs font-black"
@@ -1346,7 +1383,7 @@ export function ProductsPage() {
 
                       <button
                         type="button"
-                        onClick={() => setItemType("bakery")}
+                        onClick={() => handleItemTypeChange("bakery")}
                         className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
                           itemType === "bakery"
                             ? "bg-[#2C1810] text-amber-300 shadow-2xs font-black"
@@ -1359,19 +1396,32 @@ export function ProductsPage() {
                     </div>
                   </div>
 
-                  {/* Category Dropdown */}
+                  {/* Category Dropdown (Filtered strictly by Item Type) */}
                   <div>
-                    <label className="font-bold text-stone-700 block mb-1 text-xs">ໝວດໝູ່ (Category):</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-bold text-stone-700 text-xs">
+                        ໝວດໝູ່ ({itemType === "bakery" ? "ເບເກີຣີ / ອາຫານ" : "ເຄື່ອງດື່ມ"}): <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[10px] font-mono text-stone-400 font-semibold">
+                        {filteredModalCategories.length} ໝວດໝູ່
+                      </span>
+                    </div>
                     <select
                       value={itemCatId}
                       onChange={(e) => handleCategorySelectChange(e.target.value)}
                       className="w-full h-10 rounded-xl border border-stone-200 px-3 font-semibold text-stone-800 bg-white text-xs outline-none focus:border-stone-400 cursor-pointer"
                     >
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} ({c.item_type === "bakery" ? "ເບເກີຣີ" : "ເຄື່ອງດື່ມ"})
+                      {filteredModalCategories.length === 0 ? (
+                        <option value="" disabled>
+                          -- ບໍ່ມີໝວດໝູ່{itemType === "bakery" ? "ເບເກີຣີ" : "ເຄື່ອງດື່ມ"} (ກະລຸນາເພີ່ມໝວດໝູ່ກ່ອນ) --
                         </option>
-                      ))}
+                      ) : (
+                        filteredModalCategories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} {c.name_en ? `• ${c.name_en}` : ""}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
 

@@ -216,7 +216,7 @@ export function CafeCartPanel() {
                   <span>
                     {buzzerNumber
                       ? `ເບີເຄື່ອງສັ່ນ / ຄິວ: #${buzzerNumber}`
-                      : "ເລືອກເບີເຄື່ອງສັ່ນ / Thẻ rung..."}
+                      : "ເລືອກເບີເຄື່ອງສັ່ນ"}
                   </span>
                 </div>
                 <ChevronDown className="h-3.5 w-3.5 text-stone-400" />
