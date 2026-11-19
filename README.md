@@ -1,6 +1,33 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ☕ QuickOne Cafe & Bakery POS System
 
-## Getting Started
+Hệ thống quản lý và bán hàng POS chuyên biệt cho quán Specialty Coffee & Bakery, xây dựng trên nền tảng Next.js 16, Supabase PostgreSQL, Tailwind CSS và hệ thống in hóa đơn nhiệt ESC/POS & Tem dán ly 50x30mm.
+
+---
+
+## 📖 Tài liệu & Hướng dẫn sử dụng chi tiết
+
+Toàn bộ thông tin tổng hợp chức năng và hướng dẫn vận hành chi tiết từng bước được biên soạn tại:
+👉 **[Xem Hướng dẫn sử dụng toàn diện (HUONG_DAN_SU_DUNG.md)](./HUONG_DAN_SU_DUNG.md)**
+
+Nội dung tài liệu bao gồm:
+1. **Tổng quan hệ thống & Sơ đồ kiến trúc vận hành** (Thu ngân - Barista KDS - Khách hàng - Quản lý)
+2. **Tổng hợp 10 Phân hệ chức năng chính**:
+   - Bán hàng tại quầy POS Terminal (`/pos`)
+   - Quản lý ca làm việc Mở/Đóng ca mù & In Z-Report
+   - Màn hình phụ hướng khách hàng Realtime OnePay QR (`/customer-display`)
+   - Màn hình Barista KDS điều phối pha chế theo thời gian thực
+   - Quản lý Sơ đồ bàn & Khu vực (Trong nhà, Ngoài trời, Tầng 2)
+   - Quản lý Thực đơn, Ma trận giá (Hot/Iced/Frappe x S/M/L) & Topping (`/products`)
+   - Quản lý Đơn hàng & Lịch sử giao dịch (`/orders`)
+   - Báo cáo & Thống kê Doanh thu (`/dashboard`)
+   - Cài đặt Hệ thống & Máy in hóa đơn 80mm, Máy in tem 50x30mm (`/settings`)
+   - Xác thực & Phân quyền mã PIN nhân viên (`/login`)
+3. **9 Quy trình nghiệp vụ từng bước** cho nhân viên thu ngân, barista và chủ quán.
+4. **Bảng xử lý sự cố thường gặp (FAQ & Troubleshooting)**.
+
+---
+
+## 🚀 Khởi chạy dự án (Getting Started)
 
 First, run the development server:
 

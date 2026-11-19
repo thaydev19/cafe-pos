@@ -118,7 +118,7 @@ export const CafeCartItemRow = memo(function CafeCartItemRow({
             <img
               src={item.imageUrl}
               alt={item.name}
-              className="h-full w-full object-cover rounded-md mix-blend-multiply"
+              className="h-full w-full object-cover rounded-md"
             />
           ) : isBakery ? (
             <Croissant className="h-4 w-4 text-amber-700/60" />

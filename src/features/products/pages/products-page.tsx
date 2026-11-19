@@ -9,7 +9,7 @@
 // 3. Complete Category Management CRUD (Name, English name, type, icon, sort order)
 // ============================================================================
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Coffee,
   Plus,
@@ -38,11 +38,17 @@ import {
   Tag,
   Croissant,
   ListPlus,
+  UploadCloud,
+  Camera,
+  Link2,
+  Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { formatLak } from "@/utils/formatLakCurrency";
 import { KipCurrencyInput } from "@/components/ui/kip-currency-input";
+import { uploadProductImage } from "../services/productImage.service";
+import { recordOrphanedImage, runBackgroundCleanupJob } from "../services/mediaCleanup.service";
 import {
   MenuItemEntity,
   ToppingEntity,
@@ -98,7 +104,48 @@ export function ProductsPage() {
   const [itemNameEn, setItemNameEn] = useState("");
   const [itemCatId, setItemCatId] = useState("");
   const [itemImageUrl, setItemImageUrl] = useState("");
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [itemType, setItemType] = useState<"beverage" | "bakery">("beverage");
+  const [imageSourceMode, setImageSourceMode] = useState<"upload" | "url">("upload");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleRemoveImage = () => {
+    if (imagePreviewUrl && imagePreviewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setSelectedImageFile(null);
+    setImagePreviewUrl("");
+    setItemImageUrl("");
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement> | { target: { files: FileList | File[] } }) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if ("value" in e.target) {
+      (e.target as any).value = "";
+    }
+
+    if (imagePreviewUrl && imagePreviewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+
+    triggerHapticFeedback(15);
+    // Instant local preview with zero network latency; upload is deferred to when user clicks Save
+    const localUrl = URL.createObjectURL(file);
+    setSelectedImageFile(file);
+    setImagePreviewUrl(localUrl);
+    setImageSourceMode("upload");
+  };
+
+  const closeItemModal = () => {
+    if (imagePreviewUrl && imagePreviewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setSelectedImageFile(null);
+    setImagePreviewUrl("");
+    setIsItemModalOpen(false);
+  };
 
   // Filtered categories strictly for Add/Edit Product Modal (Beverage vs Bakery)
   const filteredModalCategories = useMemo(() => {
@@ -203,6 +250,7 @@ export function ProductsPage() {
 
   useEffect(() => {
     loadData();
+    runBackgroundCleanupJob();
   }, []);
 
   // 1. Toggle Menu Item Availability (86-ed)
@@ -373,6 +421,9 @@ export function ProductsPage() {
       setItemNameEn(item.name_en || "");
       setItemCatId(item.category_id || (categories[0]?.id || ""));
       setItemImageUrl(item.image_url || "");
+      setSelectedImageFile(null);
+      setImagePreviewUrl(item.image_url || "");
+      setImageSourceMode(item.image_url?.startsWith("http") && !item.image_url.includes("supabase") ? "url" : "upload");
 
       const isBakery = item.item_type === "bakery" || item.has_variants === false;
       setItemType(isBakery ? "bakery" : "beverage");
@@ -471,6 +522,9 @@ export function ProductsPage() {
       const initialCatId = initialCat?.id || "";
       setItemCatId(initialCatId);
       setItemImageUrl("");
+      setSelectedImageFile(null);
+      setImagePreviewUrl("");
+      setImageSourceMode("upload");
 
       const isDefaultBakery = initialCat ? isBakeryCategory(initialCat) : false;
       setItemType(isDefaultBakery ? "bakery" : "beverage");
@@ -525,13 +579,26 @@ export function ProductsPage() {
     }
 
     setIsSubmittingItem(true);
+    let finalImageUrl = itemImageUrl.trim() || null;
+
     try {
+      // Lazy Upload: Only upload selected file to Supabase Storage when user clicks Save/Submit
+      if (selectedImageFile) {
+        const uploadToast = toast.loading("ກຳລັງບີບອັດ & ອັບໂຫລດຮູບພາບ...");
+        try {
+          const res = await uploadProductImage(selectedImageFile);
+          finalImageUrl = res.url;
+        } finally {
+          toast.dismiss(uploadToast);
+        }
+      }
+
       let payload: any = {
         name: itemName.trim(),
         name_en: itemNameEn.trim() || null,
         category_id: itemCatId || null,
         item_type: itemType,
-        image_url: itemImageUrl.trim() || null,
+        image_url: finalImageUrl,
         is_available: editingItem ? editingItem.is_available : true,
         updated_at: new Date().toISOString(),
       };
@@ -662,6 +729,11 @@ export function ProductsPage() {
       }
 
       if (editingItem) {
+        // If image was replaced, queue old image for 7-day grace period cleanup
+        if (editingItem.image_url && editingItem.image_url !== finalImageUrl) {
+          recordOrphanedImage(editingItem.image_url);
+        }
+
         const { error } = await supabase.from("menu_items").update(payload).eq("id", editingItem.id);
         if (error) throw error;
         toast.success("ອັບເດດສິນຄ້າສຳເລັດແລ້ວ");
@@ -671,7 +743,7 @@ export function ProductsPage() {
         toast.success("ເພີ່ມສິນຄ້າໃໝ່ສຳເລັດແລ້ວ");
       }
 
-      setIsItemModalOpen(false);
+      closeItemModal();
       loadData();
     } catch (err: any) {
       toast.error(err?.message || "ບັນທຶກສິນຄ້າບໍ່ສຳເລັດ");
@@ -690,6 +762,11 @@ export function ProductsPage() {
       if (error) throw error;
       toast.success(`ໄດ້ລຶບເມນູ ${item.name} ແລ້ວ`);
       setMenuItems((prev) => prev.filter((m) => m.id !== item.id));
+
+      // Queue deleted product's image for 7-day grace period cleanup
+      if (item.image_url) {
+        recordOrphanedImage(item.image_url);
+      }
     } catch (err: any) {
       toast.error(err?.message || "ລຶບເມນູບໍ່ສຳເລັດ");
     }
@@ -833,7 +910,7 @@ export function ProductsPage() {
               ຈັດການເມນູ, ທ໊ອບປິ້ງ & ໝວດໝູ່ (Menu & Catalog)
             </h1>
             <p className="text-xs text-stone-500 mt-0.5">
-              ກຳນົດລາຄາ Ma trận (ຮ້ອນ/ເຢັນ/ປັ່ນ $\times$ S/M/L), ເບເກີຣີ & ໝວດໝູ່ (Supabase Real Data)
+              ກຳນົດລາຄາ Ma trận (ຮ້ອນ/ເຢັນ/ປັ່ນ , S/M/L), ເບເກີຣີ & ໝວດໝູ່ (Supabase Real Data)
             </p>
           </div>
         </div>
@@ -979,7 +1056,7 @@ export function ProductsPage() {
                                 <img
                                   src={item.image_url}
                                   alt={item.name}
-                                  className="h-full w-full object-cover mix-blend-multiply"
+                                  className="h-full w-full object-cover"
                                 />
                               ) : isBakery ? (
                                 <Croissant className="h-5 w-5 text-stone-400" />
@@ -1350,7 +1427,7 @@ export function ProductsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setIsItemModalOpen(false)}
+                onClick={closeItemModal}
                 className="flex h-8 w-8 items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition-colors cursor-pointer"
               >
                 <X className="h-5 w-5" />
@@ -1454,41 +1531,218 @@ export function ProductsPage() {
                     />
                   </div>
 
-                  {/* Image URL & Live Preview Box */}
+                  {/* Image Upload & Redesigned Mode-Switchable Section */}
                   <div className="space-y-2">
-                    <label className="font-bold text-stone-700 block text-xs">
-                      ຮູບພາບ (Image URL):
-                    </label>
+                    {/* Header Row: Label on Left, Prominent Mode Switcher on Right */}
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="font-bold text-stone-700 text-xs flex items-center gap-1.5 shrink-0">
+                        <Camera className="h-3.5 w-3.5 text-stone-500" />
+                        <span>ຮູບພາບ (Product Image):</span>
+                      </label>
+
+                      {/* Prominent Mode Toggle: Upload File vs Enter URL */}
+                      <div className="flex items-center p-0.5 bg-stone-200/80 rounded-xl border border-stone-200">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHapticFeedback(15);
+                            setImageSourceMode("upload");
+                          }}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            imageSourceMode === "upload"
+                              ? "bg-[#2C1810] text-amber-300 shadow-2xs font-black"
+                              : "text-stone-600 hover:text-stone-900"
+                          }`}
+                        >
+                          <UploadCloud className="h-3 w-3" />
+                          <span>ອັບໂຫລດໄຟລ໌</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHapticFeedback(15);
+                            setImageSourceMode("url");
+                          }}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            imageSourceMode === "url"
+                              ? "bg-[#2C1810] text-amber-300 shadow-2xs font-black"
+                              : "text-stone-600 hover:text-stone-900"
+                          }`}
+                        >
+                          <Link2 className="h-3 w-3" />
+                          <span>ປ້ອນລິ້ງ URL</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Hidden Native File Input */}
                     <input
-                      type="url"
-                      value={itemImageUrl}
-                      onChange={(e) => setItemImageUrl(e.target.value)}
-                      placeholder="https://images.unsplash.com/..."
-                      className="w-full h-9 rounded-xl border border-stone-200 px-3 font-mono text-[11px] text-stone-800 bg-white outline-none focus:border-stone-400"
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileSelect}
+                      className="hidden"
                     />
 
-                    {/* Live Preview Box */}
-                    <div className="relative h-24 w-full rounded-2xl border border-stone-200 bg-white overflow-hidden flex items-center justify-center shadow-2xs">
-                      {itemImageUrl ? (
-                        <img
-                          src={itemImageUrl}
-                          alt="Preview"
-                          className="h-full w-full object-cover"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLElement).style.display = "none";
-                          }}
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center justify-center text-stone-400 gap-1 text-[11px]">
-                          {itemType === "bakery" ? (
-                            <Croissant className="h-6 w-6 stroke-[1.5]" />
-                          ) : (
-                            <Coffee className="h-6 w-6 stroke-[1.5]" />
-                          )}
-                          <span>ຕົວຢ່າງຮູບພາບ (Live Preview)</span>
+                    {/* CONTENT CONTAINER: Swapped based on imageSourceMode */}
+                    {imageSourceMode === "upload" ? (
+                      /* MODE 1: FILE UPLOAD (Dropzone or Uploaded Preview) */
+                      (selectedImageFile || itemImageUrl) ? (
+                        <div className="relative rounded-2xl border border-stone-200/90 bg-white p-2.5 shadow-2xs flex gap-3 items-center">
+                          {/* Square 1:1 Preview Box (Faithful aspect ratio, NO zoom distortion) */}
+                          <div className="relative h-20 w-20 shrink-0 rounded-xl border border-stone-200 bg-stone-50 overflow-hidden shadow-2xs flex items-center justify-center p-0.5">
+                            <img
+                              src={imagePreviewUrl || itemImageUrl}
+                              alt={itemName || "Preview"}
+                              className="h-full w-full object-cover rounded-lg"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = "none";
+                              }}
+                            />
+                          </div>
+
+                          {/* Info & Action Controls */}
+                          <div className="flex-1 min-w-0 space-y-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 leading-none">
+                                <CheckCircle2 className="h-3 w-3" />
+                                <span>{selectedImageFile ? "ເລືອກຮູບແລ້ວ (ພ້ອມບັນທຶກ)" : "ມີຮູບພາບແລ້ວ"}</span>
+                              </span>
+                              {selectedImageFile && (
+                                <span className="text-[10px] text-stone-500 font-mono">
+                                  ({(selectedImageFile.size / 1024).toFixed(0)} KB)
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 pt-0.5">
+                              <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#2C1810] text-amber-300 text-xs font-bold hover:bg-[#1A0D08] active:scale-95 transition-all shadow-2xs cursor-pointer"
+                              >
+                                <Camera className="h-3.5 w-3.5" />
+                                <span>ປ່ຽນຮູບໃໝ່</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={handleRemoveImage}
+                                className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                              >
+                                ລຶບຮູບ (Remove)
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      ) : (
+                        /* Drag & Drop Dropzone when no image */
+                        <div
+                          onClick={() => fileInputRef.current?.click()}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) {
+                              const fakeEvent = { target: { files: [file], value: "" } } as any;
+                              handleFileSelect(fakeEvent);
+                            }
+                          }}
+                          className="relative rounded-2xl border-2 border-dashed border-stone-300 hover:border-amber-500 bg-white hover:bg-amber-50/20 p-3.5 transition-all cursor-pointer flex flex-col items-center justify-center text-center gap-1.5 group shadow-2xs"
+                        >
+                          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 text-amber-800 border border-amber-200/80 group-hover:scale-105 transition-transform">
+                            <UploadCloud className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-extrabold text-stone-800">
+                              ກົດເພື່ອເລືອກຮູບຈາກເຄື່ອງ ຫຼື ລາກວາງທີ່ນີ້
+                            </p>
+                            <p className="text-[10px] text-stone-400 font-medium mt-0.5">
+                              ຮອງຮັບຮູບຖ່າຍຈາກມືຖືທຸກຂະໜາດ • ບີບອັດ & ອັບໂຫລດເມື່ອບັນທຶກ
+                            </p>
+                          </div>
+                          <div className="mt-0.5 flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-md bg-stone-100 text-[9.5px] font-mono font-bold text-stone-600 border border-stone-200">
+                              JPG, PNG, WEBP
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    ) : (
+                      /* MODE 2: ENTER URL INPUT FRAME */
+                      <div className="space-y-2 rounded-2xl border border-stone-200/90 bg-white p-3 shadow-2xs">
+                        <div className="relative flex items-center">
+                          <Link2 className="absolute left-3 h-4 w-4 text-stone-400 pointer-events-none" />
+                          <input
+                            type="url"
+                            value={itemImageUrl}
+                            onChange={(e) => {
+                              const url = e.target.value;
+                              setItemImageUrl(url);
+                              if (selectedImageFile) {
+                                if (imagePreviewUrl && imagePreviewUrl.startsWith("blob:")) {
+                                  URL.revokeObjectURL(imagePreviewUrl);
+                                }
+                                setSelectedImageFile(null);
+                              }
+                              setImagePreviewUrl(url);
+                            }}
+                            placeholder="ວາງລິ້ງຮູບພາບທີ່ນີ້ (https://images.unsplash.com/...)"
+                            className="w-full h-10 rounded-xl border border-stone-200 pl-9 pr-8 font-mono text-xs text-stone-800 bg-white outline-none focus:border-stone-400 shadow-2xs"
+                          />
+                          {itemImageUrl && (
+                            <button
+                              type="button"
+                              onClick={handleRemoveImage}
+                              className="absolute right-2.5 text-stone-400 hover:text-stone-700 cursor-pointer"
+                              title="ລຶບລິ້ງ"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {itemImageUrl ? (
+                          /* Image Preview loaded from URL */
+                          <div className="flex items-center gap-3 p-2 bg-stone-50 rounded-xl border border-stone-200/80">
+                            <div className="h-16 w-16 shrink-0 rounded-lg border border-stone-200 bg-white overflow-hidden p-0.5 shadow-2xs">
+                              <img
+                                src={itemImageUrl}
+                                alt="Preview from link"
+                                className="h-full w-full object-cover rounded-md"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLElement).style.display = "none";
+                                }}
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="text-[11px] font-bold text-emerald-700 block">
+                                ✓ ໂຫລດຮູບພາບຈາກລິ້ງສຳເລັດ
+                              </span>
+                              <p className="text-[10px] text-stone-400 font-mono truncate">
+                                {itemImageUrl}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleRemoveImage}
+                              className="text-xs font-bold text-rose-600 hover:text-rose-700 px-2 py-1 rounded-lg hover:bg-rose-50 cursor-pointer"
+                            >
+                              ລຶບ
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-[10.5px] text-stone-400 font-medium pl-1">
+                            💡 ທ່ານສາມາດກັອບປີ້ລິ້ງຮູບພາບຈາກ Google, Unsplash ມາໃສ່ທີ່ນີ້ໄດ້ເລີຍ.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1978,7 +2232,7 @@ export function ProductsPage() {
                   <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-stone-100 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setIsItemModalOpen(false)}
+                      onClick={closeItemModal}
                       className="px-4 py-2.5 rounded-xl border border-stone-200 font-bold text-stone-700 hover:bg-stone-50 transition-colors cursor-pointer text-xs"
                     >
                       ຍົກເລີກ

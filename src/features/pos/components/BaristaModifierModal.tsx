@@ -356,7 +356,7 @@ export function BaristaModifierModal() {
                     <img
                       src={selectedMenuItem.image_url}
                       alt={selectedMenuItem.name}
-                      className="h-full w-full object-cover mix-blend-multiply"
+                      className="h-full w-full object-cover"
                     />
                   ) : (
                     <Coffee className="h-8 w-8 text-stone-400" />

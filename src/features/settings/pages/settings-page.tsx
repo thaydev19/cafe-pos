@@ -40,9 +40,19 @@ import {
   LogOut,
   Wrench,
   Loader2,
+  HardDrive,
+  Cloud,
+  Sparkles,
+  Clock,
+  CheckCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import {
+  scanMediaStorage,
+  purgeOrphanedMedia,
+  MediaAuditSummary,
+} from "@/features/products/services/mediaCleanup.service";
 import { DiningTableEntity } from "@/types/database.types";
 import { DEFAULT_STORE } from "@/features/pos/constants/pos.constants";
 import {
@@ -96,7 +106,56 @@ const PRESET_IPS = ["192.168.1.200", "192.168.0.200", "192.168.1.100"];
 
 export function SettingsPage() {
   // --- Active Tab State ---
-  const [activeTab, setActiveTab] = useState<"hardware" | "tables" | "staff">("hardware");
+  const [activeTab, setActiveTab] = useState<"hardware" | "tables" | "staff" | "storage">("hardware");
+
+  // --- Storage Management State ---
+  const [storageAudit, setStorageAudit] = useState<MediaAuditSummary | null>(null);
+  const [isLoadingStorage, setIsLoadingStorage] = useState(false);
+  const [isPurgingStorage, setIsPurgingStorage] = useState(false);
+
+  const handleScanStorage = async () => {
+    setIsLoadingStorage(true);
+    triggerHapticFeedback(15);
+    try {
+      const summary = await scanMediaStorage();
+      setStorageAudit(summary);
+      toast.success(
+        `ກວດພົບ ${summary.totalFiles} ໄຟລ໌ (${summary.activeFiles} ກຳລັງໃຊ້ງານ, ${summary.orphanedExpired} ໝົດອາຍຸ > 7 ມື້)`
+      );
+    } catch (err: any) {
+      toast.error(err?.message || "ສະແກນພື້ນທີ່ບໍ່ສຳເລັດ");
+    } finally {
+      setIsLoadingStorage(false);
+    }
+  };
+
+  const handlePurgeStorage = async (forceAll: boolean = false) => {
+    if (forceAll) {
+      const confirm = window.confirm(
+        "ທ່ານແນ່ໃຈບໍ່ວ່າຕ້ອງການລຶບໄຟລ໌ຮູບພາບທີ່ບໍ່ໄດ້ໃຊ້ທັງໝົດທັນທີ (ຂ້າມໄລຍະ Grace Period 7 ມື້)?"
+      );
+      if (!confirm) return;
+    }
+
+    setIsPurgingStorage(true);
+    triggerHapticFeedback(15);
+    try {
+      const res = await purgeOrphanedMedia(forceAll);
+      if (res.purgedCount > 0) {
+        toast.success(
+          `ລຶບສຳເລັດ ${res.purgedCount} ໄຟລ໌ (ປະຢັດພື້ນທີ່ໄດ້ ${(res.freedBytes / 1024).toFixed(1)} KB)`
+        );
+      } else {
+        toast.info("ບໍ່ມີໄຟລ໌ເກົ່າທີ່ຕ້ອງລຶບ");
+      }
+      const summary = await scanMediaStorage();
+      setStorageAudit(summary);
+    } catch (err: any) {
+      toast.error(err?.message || "ລຶບໄຟລ໌ບໍ່ສຳເລັດ");
+    } finally {
+      setIsPurgingStorage(false);
+    }
+  };
 
   // --- Table & Zone Management State (Supabase Real Data) ---
   const [diningTables, setDiningTables] = useState<DiningTableEntity[]>([]);
@@ -131,6 +190,8 @@ export function SettingsPage() {
   useEffect(() => {
     if (activeTab === "tables") {
       loadTables();
+    } else if (activeTab === "storage" && !storageAudit) {
+      handleScanStorage();
     }
   }, [activeTab]);
 
@@ -486,14 +547,30 @@ export function SettingsPage() {
             triggerHapticFeedback(15);
             setActiveTab("staff");
           }}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl transition-all cursor-pointer ${
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl transition-all cursor-pointer ${
             activeTab === "staff"
               ? "bg-[#2C1810] text-amber-300 shadow-xs font-black"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
           <Users className="h-4 w-4" />
-          <span>ບັນຊີພະນັກງານ (Staff & PIN)</span>
+          <span>ພະນັກງານ (Staff)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            triggerHapticFeedback(15);
+            setActiveTab("storage");
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl transition-all cursor-pointer ${
+            activeTab === "storage"
+              ? "bg-[#2C1810] text-amber-300 shadow-xs font-black"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          <HardDrive className="h-4 w-4" />
+          <span>ພື້ນທີ່ຮູບພາບ (Storage)</span>
         </button>
       </div>
 
@@ -1274,6 +1351,182 @@ export function SettingsPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* TAB 4: STORAGE & MEDIA OPTIMIZATION (Supabase Storage menu-items) */}
+      {/* ==================================================================== */}
+      {activeTab === "storage" && (
+        <div className="space-y-5 animate-in fade-in duration-150">
+          {/* 1. Header Card */}
+          <div className="rounded-2xl border border-zinc-200/80 bg-white p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-2xl bg-[#2C1810] flex items-center justify-center text-amber-300 shadow-2xs">
+                  <HardDrive className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 leading-tight">
+                    ຈັດການພື້ນທີ່ຮູບພາບ & ສື່ (Supabase Storage Management)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Bucket: <span className="font-mono font-bold text-amber-800">menu-items</span> • ລະບົບປ້ອງກັນ Grace Period 7 ມື້ & ອະນາໄມໄຟລ໌ເກົ່າອັດຕະໂນມັດ
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isLoadingStorage || isPurgingStorage}
+                  onClick={handleScanStorage}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 shadow-2xs"
+                >
+                  <RefreshCw className={`h-4 w-4 ${isLoadingStorage ? "animate-spin text-amber-700" : ""}`} />
+                  <span>ສະແກນພື້ນທີ່ (Scan Storage)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 4 Metric Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+              {/* Card 1: Total Files */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+                <span className="text-[11px] font-bold text-slate-500 block mb-1">
+                  ໄຟລ໌ທັງໝົດໃນ Cloud
+                </span>
+                <div className="text-2xl font-black text-slate-900 font-mono">
+                  {storageAudit ? storageAudit.totalFiles : "—"}
+                  <span className="text-xs font-normal text-slate-400 ml-1">ໄຟລ໌</span>
+                </div>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  Bucket: menu-items
+                </span>
+              </div>
+
+              {/* Card 2: Active Files in Menu */}
+              <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200">
+                <span className="text-[11px] font-bold text-emerald-800 block mb-1">
+                  ✓ ກຳລັງໃຊ້ງານໃນເມນູ
+                </span>
+                <div className="text-2xl font-black text-emerald-900 font-mono">
+                  {storageAudit ? storageAudit.activeFiles : "—"}
+                  <span className="text-xs font-normal text-emerald-700 ml-1">ໄຟລ໌</span>
+                </div>
+                <span className="text-[10px] text-emerald-700 mt-0.5 block">
+                  ຜູກຕິດກັບສິນຄ້າໃນຖານຂໍ້ມູນ
+                </span>
+              </div>
+
+              {/* Card 3: Grace Period (< 7 days) */}
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200">
+                <span className="text-[11px] font-bold text-amber-900 block mb-1">
+                  ⏳ ໄລຍະປ້ອງກັນ Grace (&lt; 7 ມື້)
+                </span>
+                <div className="text-2xl font-black text-amber-950 font-mono">
+                  {storageAudit ? storageAudit.orphanedGracePeriod : "—"}
+                  <span className="text-xs font-normal text-amber-800 ml-1">ໄຟລ໌</span>
+                </div>
+                <span className="text-[10px] text-amber-800 mt-0.5 block">
+                  ເກັບໄວ້ສຳຮອງປ້ອງກັນປ່ຽນໃຈ
+                </span>
+              </div>
+
+              {/* Card 4: Expired Orphaned (>= 7 days) */}
+              <div className="p-4 rounded-2xl bg-rose-50/70 border border-rose-200">
+                <span className="text-[11px] font-bold text-rose-800 block mb-1">
+                  🗑️ ໄຟລ໌ເກົ່າໝົດອາຍຸ (≥ 7 ມື້)
+                </span>
+                <div className="text-2xl font-black text-rose-900 font-mono">
+                  {storageAudit ? storageAudit.orphanedExpired : "—"}
+                  <span className="text-xs font-normal text-rose-700 ml-1">ໄຟລ໌</span>
+                </div>
+                <span className="text-[10px] text-rose-700 mt-0.5 block">
+                  ພ້ອມລຶບອັດຕະໂນມັດ
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Best Practice Explanation & Actions */}
+          <div className="rounded-2xl border border-zinc-200/80 bg-white p-5 sm:p-6 shadow-xs space-y-4">
+            <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
+              <Shield className="h-4 w-4 text-emerald-600" />
+              <span>ຫຼັກການເຮັດວຽກທີ່ດີທີ່ສຸດ (Best Practice Architecture)</span>
+            </h4>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-600">
+              <div className="p-3.5 rounded-xl border border-slate-100 bg-slate-50 space-y-1">
+                <p className="font-black text-slate-900 flex items-center gap-1.5">
+                  <Clock className="h-4 w-4 text-amber-600" />
+                  <span>1. Grace Period 7 ມື້</span>
+                </p>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  ເມື່ອມີການປ່ຽນຮູບໃໝ່ ຫຼື ລຶບສິນຄ້າ, ຮູບເກົ່າຈະຍັງບໍ່ຖືກລຶບທັນທີ ແຕ່ຈະຖືກເກັບໄວ້ 7 ມື້ ເພື່ອໃຫ້ທ່ານສາມາດຍົກເລີກ ຫຼື ປ່ຽນຄືນໄດ້.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-100 bg-slate-50 space-y-1">
+                <p className="font-black text-slate-900 flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-emerald-600" />
+                  <span>2. ບີບອັດ WebP &lt; 120KB</span>
+                </p>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  ຮູບຖ່າຍຈາກມືຖື 10MB-30MB ຈະຖືກ Canvas ຫຍໍ້ຂະໜາດ 1000px ເຫຼືອພຽງ ~80-120KB. 1GB Free ຂອງ Supabase ເກັບໄດ້ກວ່າ 10,000 ຮູບ.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-100 bg-slate-50 space-y-1">
+                <p className="font-black text-slate-900 flex items-center gap-1.5">
+                  <Cloud className="h-4 w-4 text-blue-600" />
+                  <span>3. Auto-Cleanup ເບື້ອງຫຼັງ</span>
+                </p>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  ທຸກຄັ້ງທີ່ເປີດໜ້າຈັດການສິນຄ້າ, ລະບົບຈະກວດສອບ ແລະ ລຶບໄຟລ໌ທີ່ເກີນ 7 ມື້ໂດຍອັດຕະໂນມັດ ໂດຍບໍ່ກະທົບຕໍ່ຄວາມໄວຂອງແອັບ.
+                </p>
+              </div>
+            </div>
+
+            {/* Action Bar */}
+            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                {storageAudit && storageAudit.orphanedExpired > 0 ? (
+                  <span className="font-bold text-amber-800">
+                    💡 ພົບເຫັນ {storageAudit.orphanedExpired} ໄຟລ໌ໝົດອາຍຸ (ປະຢັດໄດ້ ~{(storageAudit.orphanedTotalBytes / 1024).toFixed(0)} KB) ທີ່ສາມາດອະນາໄມໄດ້.
+                  </span>
+                ) : (
+                  <span className="font-bold text-emerald-700">
+                    ✓ ລະບົບພື້ນທີ່ຈັດເກັບຮູບພາບສະອາດ ແລະ ປອດໄພດີ.
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Purge Expired Only (Recommended) */}
+                <button
+                  type="button"
+                  disabled={isPurgingStorage || isLoadingStorage || !storageAudit || storageAudit.orphanedExpired === 0}
+                  onClick={() => handlePurgeStorage(false)}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#2C1810] text-amber-300 font-bold text-xs hover:bg-[#1A0D08] active:scale-95 transition-all shadow-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isPurgingStorage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  <span>ລຶບໄຟລ໌ໝົດອາຍຸ &gt; 7 ມື້ (Purge Expired)</span>
+                </button>
+
+                {/* Force Purge All Unused */}
+                <button
+                  type="button"
+                  disabled={isPurgingStorage || isLoadingStorage || !storageAudit || (storageAudit.orphanedGracePeriod === 0 && storageAudit.orphanedExpired === 0)}
+                  onClick={() => handlePurgeStorage(true)}
+                  className="flex items-center justify-center gap-1 px-3.5 py-2.5 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 font-bold text-xs transition-all active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="ລຶບໄຟລ໌ຮູບພາບທີ່ບໍ່ໄດ້ໃຊ້ທັງໝົດທັນທີ (ຂ້າມ Grace Period)"
+                >
+                  <span>ລຶບໄຟລ໌ທີ່ບໍ່ໄດ້ໃຊ້ທັງໝົດທັນທີ</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

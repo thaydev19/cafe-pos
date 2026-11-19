@@ -73,14 +73,14 @@ export const DrinkStudioCard = memo(function DrinkStudioCard({
           : "border-stone-200/90 bg-white hover:border-amber-500/80 hover:shadow-md cursor-pointer"
       } p-2 pb-2.5 shadow-2xs`}
     >
-      {/* 1. Beverage Image Frame: Edge-to-Edge Clean White, mix-blend-multiply */}
+      {/* 1. Beverage Image Frame: Edge-to-Edge Clean White */}
       <div className="relative h-36 sm:h-40 w-full bg-white rounded-xl overflow-hidden flex items-center justify-center border border-stone-100">
         {item.image_url ? (
           <img
             src={item.image_url}
             alt={item.name}
             loading="lazy"
-            className="w-full h-full object-cover mix-blend-multiply scale-110 group-hover:scale-115 transition-transform duration-300"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-amber-800/40 bg-stone-50">
